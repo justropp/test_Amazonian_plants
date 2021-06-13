@@ -52,6 +52,11 @@
         :available-viewers="availableViewers"
         :scroll-top="scrollTop"
         :content-source="contentSource"
+        :logins-enabled="loginsEnabled"
+        :is-juncture="isJuncture"
+        :is-authenticated="authenticatedUser !== null && loginsEnabled"
+        :is-admin="isAdminUser"
+        :version="junctureVersion"
         @set-entities="entities = $event"
         @set-params="params = $event"
         @set-items="items = $event"
@@ -179,8 +184,8 @@
   
     console.log(window.location)
     const ENV = window.location.hostname === 'localhost' || window.location.hostname.indexOf('gitpod') > 0 ? 'DEV' : 'PROD'
-    const isJuncture = window.location.hostname.indexOf('juncture-digital.org') >= 0 || window.location.host === 'localhost:8088'
-    const junctureVersion = 'v0.2.5'
+    let isJuncture = window.location.hostname.indexOf('juncture-digital.org') >= 0 || window.location.host === 'localhost:8088'
+    const junctureVersion = 'v0.2.12'
     let junctureVersionHash
 
     const referrerUrl = document.referrer
@@ -261,6 +266,7 @@
         let repo = window.location.pathname.split('/').filter(elem => elem !== '')[0] || 'juncture'
         contentSource = {acct: 'jstor-labs', repo, branch: 'main', ref: 'main', hash: null, baseUrl: window.location.origin, basePath: `/${repo}`, isGhpSite: true,
                          assetsBaseUrl: `${window.location.origin}/${repo}`}
+        isJuncture = contentSource.acct === 'jstor-labs' && contentSource.repo === 'juncture'
 
       } else {
         // GHP deploy mode
@@ -376,7 +382,6 @@
             ref: qargs.ref || config.ref || contentSource.ref
         }}
       //}
-    
       if (gaPropertyID) ga('create', gaPropertyID, 'auto')
       let attrsWithUrls = ['banner', 'favicon']
 
@@ -529,7 +534,10 @@
             provider.addScope('repo')
             firebase.auth().signInWithRedirect(provider)
           },
-          logout() { this.authenticatedUser = null; window.localStorage.removeItem('ghAuth') },
+          logout() { 
+            this.authenticatedUser = null; window.localStorage.removeItem('ghAuth')
+            this.loadEssay()
+          },
 
           editMarkdown() {
             this.openWindow(`https://github.com/${this.contentSource.acct}/${this.contentSource.repo}/edit/${this.contentSource.ref}${this.mdPath}`) 
@@ -679,6 +687,7 @@
             this.path = path 
             console.log(`loadEssay: basePath=${contentSource.basePath} path=${path} anchor=${this.anchor}`)
             let pathsToTry = [`${path}README.md`, `${path.slice(0,-1)}.md`, `${path}index.md`]
+            if (this.authenticatedUser !== null) pathsToTry = [...[`${path}admin.md`], ...pathsToTry]
             let markdown
             for (let i = 0; i < pathsToTry.length; i++) {
               markdown = await this.getMarkdown(pathsToTry[i])
@@ -714,6 +723,7 @@
       
             let essay = document.createElement('div')
             let currentSection = essay
+            currentSection.setAttribute('data-id', '1')
             let segments = []
             let segment
 
@@ -724,7 +734,7 @@
                   prior.id = param.id
                   param.removeAttribute('id')
                 }
-                if (param.classList.length > 0) prior.classList.add(param.classList)
+                if (param.classList.length > 0) prior.className = param.className
                 param.parentElement.removeChild(param)
               }
             })
@@ -810,7 +820,7 @@
                 while (prior && prior.tagName !== 'P' && prior.tagName[0] !== 'H') {
                   prior = prior.previousElementSibling
                 }
-                return { ...{ path: getDomPath(prior || tmp).join('>') }, ...attrsToObject(paramEl) }
+                return { ...{ path: getDomPath(prior || tmp).filter(elem => elem !== 'html' && elem !== 'body').join('>') }, ...attrsToObject(paramEl) }
               })
               .map(paramObj => {
                 let viewerTag = Object.keys(paramObj).find(attr => !attr.value && this.availableViewers.indexOf(attr) >= 0)
@@ -908,10 +918,10 @@
 
           convertResourceUrls(root) {
             root.querySelectorAll('img').forEach(img => {
-              if (img.src.indexOf(window.location.origin) === 0) img.setAttribute('src', convertURL(img.src))
+              if (img.src.indexOf(window.location.origin) === 0) img.setAttribute('src', convertURL(img.src,`${contentSource.basePath}${this.path}`, this.mdDir !== '/'))
             })
             root.querySelectorAll('param').forEach(param => {
-              ['url', 'banner', 'article'].forEach(attr => {
+              ['url', 'banner', 'article', 'logo'].forEach(attr => {
                 if (param.attributes[attr]) param.setAttribute(attr, convertURL(param.attributes[attr].value, `${contentSource.basePath}${this.path}`, this.mdDir !== '/'))
               })
             })
@@ -1148,7 +1158,7 @@
 
           scrollTop: {
             handler: function (scrollTop) { 
-              this.viewerHeight = this.$refs.viewer.clientHeight
+              if (this.$refs.viewer) this.viewerHeight = this.$refs.viewer.clientHeight
             },
             immediate: false
           },
@@ -1367,17 +1377,19 @@
         }
         el = el.parentNode
       }
-      return stack.slice(1) // removes the html element
+      return stack
     }
 
     // Gets site config
     async function getSiteConfig() {
       let config = {}
-      let junctureConfigUrl = isJuncture && window.location.host !== 'localhost:8088' 
+      let junctureConfigUrl = isJuncture && window.location.hostname !== 'localhost' 
         ? `${window.location.origin}/config.yaml`
         : 'https://raw.githubusercontent.com/jstor-labs/juncture/juncture/config.yaml'
       let resp = await fetch(junctureConfigUrl)
-      resp = YAML.parse(await resp.text())
+        .then(resp => resp.text())
+        .catch(err => console.warn(err))
+      resp = YAML.parse(resp)
       ghUnscopedToken = atob(resp.ghUnscopedToken)
       fontawesome = resp.fontawesome
       if (isJuncture) {
