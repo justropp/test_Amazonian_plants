@@ -51,6 +51,8 @@
         :params="params"
         :available-viewers="availableViewers"
         :scroll-top="scrollTop"
+        :site-config="siteConfig"
+        :essay-config="essayConfig"
         :content-source="contentSource"
         :logins-enabled="loginsEnabled"
         :is-juncture="isJuncture"
@@ -185,7 +187,7 @@
     console.log(window.location)
     const ENV = window.location.hostname === 'localhost' || window.location.hostname.indexOf('gitpod') > 0 ? 'DEV' : 'PROD'
     let isJuncture = window.location.hostname.indexOf('juncture-digital.org') >= 0 || window.location.host === 'localhost:8088'
-    const junctureVersion = 'v0.2.12'
+    const junctureVersion = 'main'
     let junctureVersionHash
 
     const referrerUrl = document.referrer
@@ -266,7 +268,7 @@
         let repo = window.location.pathname.split('/').filter(elem => elem !== '')[0] || 'juncture'
         contentSource = {acct: 'jstor-labs', repo, branch: 'main', ref: 'main', hash: null, baseUrl: window.location.origin, basePath: `/${repo}`, isGhpSite: true,
                          assetsBaseUrl: `${window.location.origin}/${repo}`}
-        isJuncture = contentSource.acct === 'jstor-labs' && contentSource.repo === 'juncture'
+        // isJuncture = contentSource.acct === 'jstor-labs' && contentSource.repo === 'juncture'
 
       } else {
         // GHP deploy mode
@@ -459,7 +461,7 @@
           isJuncture,
           junctureVersion,
           path: '/',
-          mdpath: '',
+          mdPath: '',
           mdDir: '/',
           markdown: null,
           markdownViewer: null,
@@ -563,7 +565,8 @@
             console.log('doAction', action, options)
             if (action === 'send-email') {
               this.doActionCallback = {status: 'processing', message: 'Processing request'}
-              await sendEmail(options)
+              let resp = await sendEmail(options)
+              console.log(resp)
               this.doActionCallback = {status: 'done', message: 'Email sent'}
             } else if (action === 'viewMarkdown') {
               this.markdownViewer.show()
@@ -692,10 +695,11 @@
             for (let i = 0; i < pathsToTry.length; i++) {
               markdown = await this.getMarkdown(pathsToTry[i])
               if (markdown) {
-                this.mdDir = i === 1 ? '/' : path
+                let mdFile = path.split('/').pop()
+                this.mdDir = mdFile !== 'README.md' && mdFile !== 'index.md' && mdFile !== 'admin.md' ? path : '/'
+                this.mdPath = pathsToTry[i]
                 break
               }
-              this.mdPath = pathsToTry[i]
             }
             if (markdown) {
               ([this.markdown, this.html, this.params, this.entities] = await this.parseMarkdown(markdown))
@@ -1109,7 +1113,7 @@
               let toReplace = {...replacementValues, ...{'<<edit-url>>': `https://github.com/${targetAcct}/${targetRepo}/edit/main/README.md`}}
               await this.putFile('/README.md', this.replaceValues(resp.content, toReplace), targetAcct, targetRepo, 'main')
 
-              await this.addPage(targetAcct, targetRepo, fromRef, '/about')
+              await this.addPage(targetAcct, targetRepo, fromRef, '/sample')
             }
 
           },
@@ -1559,7 +1563,7 @@
       }
       // console.log(`assetsBaseUrl=${contentSource.assetsBaseUrl}`)
       converted = `${contentSource.assetsBaseUrl || contentSource.baseUrl}/${pathElems.join('/')}`
-      // console.log(`convertURL: current=${current} converted=${converted} path=${path} pathIsDir=${pathIsDir} pathElems=${pathElems}`)
+      // console.log(`isJuncture=${isJuncture} convertURL: current=${current} converted=${converted} path=${path} pathIsDir=${pathIsDir} pathElems=${pathElems}`)
       return converted
     }
 
